@@ -181,31 +181,99 @@ explain the reasoning yourself when presenting to the TA.*
 
 ## Milestone 3: The misuse critique
 
-Not coded. One misuse, one redesign, one cost. Discuss it with your TA.
+Design proposal only; no production code or consumer files changed.
 
 ### The misuse
 
-**What is easy to get wrong.** One specific thing about the API surface.
+**What is easy to get wrong.** `cancelBooking(long bookingId, boolean
+notifyWaitlist)` hides the cancellation policy behind a boolean. A reader
+cannot tell from `true` alone whether it sends a message, promotes a booking,
+or does something else. Here it promotes at most one eligible waitlisted
+booking; it does not send a notification. Accidentally choosing the opposite
+boolean still compiles.
 
-**The call site.** File and line in `consumer/`, with the call. Show the
-code that a reader cannot understand without opening the javadoc, or that a
-caller could get wrong with the compiler still happy.
+**The call site.** In
+`consumer/src/main/java/edu/cmu/cs214/frontdesk/FrontDesk.java:48`:
 
-**What goes wrong when it happens.** Silent bad behavior, wrong data, a crash
-somewhere far away?
+```java
+return api.cancelBooking(bookingId, true);
+```
+
+The quiet cancellation at line 53 uses the same method with the other value:
+
+```java
+return api.cancelBooking(bookingId, false);
+```
+
+The enclosing method names help, but the API calls themselves do not express
+the policy. Both existing calls are correct; the critique is that a future
+caller can invert the flag without a compiler error.
+
+**What goes wrong when it happens.** Suppose a CONFIRMED booking and a
+WAITLISTED booking both cover room R1 from minute 540 to minute 600, with no
+other conflict. If a caller intends a quiet cancellation but passes `true`,
+the first booking becomes CANCELLED and the queued booking becomes CONFIRMED,
+holding the room unexpectedly. If a caller intends promotion but passes
+`false`, the guest stays WAITLISTED even though the room is now free. Both
+calls return true because cancellation succeeded: the wrong policy creates
+silent business behavior rather than an exception.
 
 ### The redesign
 
-**The proposal.** Types, enums, factories, or whatever you are proposing. Show
-the new signature and the new call site.
+**The proposal.** Replace the flag in the preferred API with an explicit
+policy type. Proposed declarations, not implemented in this milestone:
 
-**Why the mistake is now hard or impossible to make.** Point at the mechanism,
-such as the compiler, a validating constructor, or an exhaustive switch.
+```java
+public enum CancellationPolicy {
+    CANCEL_ONLY,
+    PROMOTE_FIRST_ELIGIBLE
+}
+
+boolean cancelBooking(long bookingId, CancellationPolicy policy);
+```
+
+The proposed replacements for the two consumer calls are:
+
+```java
+// FrontDesk.cancelAndOfferToWaitlist
+return api.cancelBooking(bookingId, CancellationPolicy.PROMOTE_FIRST_ELIGIBLE);
+
+// FrontDesk.cancelQuietly
+return api.cancelBooking(bookingId, CancellationPolicy.CANCEL_ONLY);
+```
+
+`PROMOTE_FIRST_ELIGIBLE` preserves the existing contract: consider overlapping
+WAITLISTED bookings on the same room in creation order, and promote at most
+the first that no longer conflicts with a remaining CONFIRMED booking.
+`CANCEL_ONLY` never promotes anyone. Id handling and the return value stay
+the same. The proposed implementation rejects a null policy with
+`IllegalArgumentException` before mutating state, and uses an exhaustive
+switch expression over the enum to select the behavior.
+
+**Why the mistake is now hard or impossible to make.** The compiler rejects
+`true` or `false` for the new signature because boolean is not
+`CancellationPolicy`. Named values expose intent at the call site and make
+an accidental inversion easier to spot during review. The exhaustive switch
+expression requires handling a new enum constant when recompiled. This does
+not prove business intent: choosing the wrong valid enum constant can still
+compile. The redesign prevents opaque boolean arguments in new calls and
+makes the remaining mistake more visible.
 
 ### One tradeoff
 
-**What it costs.** Something real, such as caller ceremony, migration burden
-against the deprecation path you just built, or more types for a newcomer to
-learn. "No real downside" does not count.
+**What it costs.** Migration burden: every caller must learn the new type and
+update its cancellation call. To avoid the source break observed in Milestone
+2, retain the old boolean signature as an `@Deprecated` adapter that maps
+true to `PROMOTE_FIRST_ELIGIBLE` and false to `CANCEL_ONLY`, then delegates to
+the typed method. This adds an overload and a compatibility path to maintain.
+The old calls stay susceptible to flag mistakes until their owners migrate;
+removing the adapter requires a coordinated breaking release. The creation
+adapters already built in Milestone 2 would remain unchanged.
 
-**When the price is worth paying.** A condition under which it is.
+**When the price is worth paying.** When several independent teams call this
+API, or an unexpected promotion has a meaningful operational cost, explicit
+policies are worth the migration effort. A small internal API with few,
+well-understood calls may get less benefit from the additional type and adapter.
+
+*Critique drafted with agent assistance; review it and explain the design and
+its limits yourself when presenting to the TA.*
