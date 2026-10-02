@@ -11,19 +11,52 @@ Keep it short and specific. Point at methods, call sites, and error text.
 
 ### Prediction (write this before you run the build, and you can deliberate with your agent)
 
-**Will the consumer, untouched, still compile and pass?** Yes or no.
+**Will the consumer, untouched, still compile and pass?** Yes.
 
-**Why.** What does the compiler do with the consumer's existing call sites once
-the new overload exists?
+**Why.** Prediction drafted with agent assistance before running the build.
+The existing four-argument signature remains available. The new overload
+adds a fifth argument, `String notes`, so it is not applicable to the
+four-argument calls in `FrontDesk.java:27` and `FrontDesk.java:33`, even
+when the fourth argument is `null`. Both still resolve to the old method.
+That method will delegate with null notes, preserving the existing
+waitlisting, conflict, and booking behavior. Schedule and cancellation
+calls are unaffected.
 
 ### What happened
 
-**The result.** What the build printed for each module.
+**The result.** The baseline `mvn -B test` passed with 5 api tests and
+7 consumer tests. After the change, `mvn -B test` and a fresh
+`mvn -B clean test` both passed. The clean build recompiled both modules.
 
-**If your prediction was wrong,** say what you missed.
+```text
+api:
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+consumer:
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+[INFO] lab06-booking-parent ............................... SUCCESS
+[INFO] lab06-api .......................................... SUCCESS
+[INFO] lab06-consumer ..................................... SUCCESS
+[INFO] BUILD SUCCESS
+```
 
-**Is an additive change always safe in Java?** One case where adding something
-to an API still breaks a caller, if you can name one.
+The five original api tests remain; two new tests check notes retention
+through waitlisting and promotion, conflict rejection, and null notes
+for both old and new overloads. No files under `consumer/` were edited.
+
+**If your prediction was wrong.** It was correct. The consumer keeps
+calling the four-argument method, which delegates with null notes.
+
+**Is an additive change always safe in Java?** Merely adding an overload
+is not always safe. With only `f(String value)`, a call `f(null)` compiles.
+Adding `f(Integer value)` makes that existing call ambiguous: both
+reference types accept null and neither is more specific. The caller
+then fails at compile time. Our overload adds a parameter instead, so
+the existing four-argument calls do not have that ambiguity. Strictly,
+an addition that breaks an existing caller is a breaking change under
+the handout's definition.
+
+*Prediction and explanations drafted with agent assistance; review
+them and explain the reasoning yourself when presenting to the TA.*
 
 ---
 
