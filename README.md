@@ -43,4 +43,4 @@ From this directory. Maven builds `api` first, then compiles and tests
 
 See the Lab 6 handout on the course page for the three milestones you show a TA.
 
-Tools used for Milestone 1: OpenAI Codex (GPT-6).
+Tools used for Milestones 1 and 2: OpenAI Codex (GPT-6).
